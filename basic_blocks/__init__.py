@@ -1,4 +1,4 @@
 from .binary_basic_block import BinaryBasicBlock
 from .parallel_binary_basic_block_with_fusion_gate import ParallelBinaryBasicBlockWithFusionGate
-from .parallel_binary_basic_block import ParallelBinaryBasicBlock
+from .parallel_binary_basic_block import ParallelBinaryBasicBlockWithSqueeze,  ParallelBinaryBasicBlockNoSqueeze
 

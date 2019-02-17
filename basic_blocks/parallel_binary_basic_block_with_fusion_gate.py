@@ -1,4 +1,7 @@
+import torch
 import torch.nn as nn
+
+import numpy as np
 
 from modules import binary_conv3x3
 

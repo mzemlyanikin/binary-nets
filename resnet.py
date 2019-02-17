@@ -1,4 +1,7 @@
 import torch.nn as nn
+from basic_blocks import ParallelBinaryBasicBlockNoSqueeze, ParallelBinaryBasicBlockWithSqueeze, ParallelBinaryBasicBlockWithFusionGate
+
+from modules import conv1x1
 
 
 class ResNet(nn.Module):
@@ -40,7 +43,7 @@ class ResNet(nn.Module):
     def _make_layer(self, block, planes, blocks, stride=1, parallel=1):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
-            if block in [ParallelBinaryBasicBlock, BinaryBasicBlockWithFusionGate]:
+            if block in [ParallelBinaryBasicBlockNoSqueeze, ParallelBinaryBasicBlockWithFusionGate]:
                 downsample = nn.Sequential(
                     conv1x1(self.inplanes * parallel, planes * block.expansion * parallel, stride, parallel), # is it OK?
                     nn.BatchNorm2d(planes * block.expansion * parallel),
@@ -53,14 +56,14 @@ class ResNet(nn.Module):
                 )
 
         layers = []
-        if block in [ParallelBinaryBasicBlock, BinaryBasicBlockWithSqueeze, BinaryBasicBlockWithFusionGate]:
+        if block in [ParallelBinaryBasicBlockNoSqueeze, ParallelBinaryBasicBlockWithSqueeze, ParallelBinaryBasicBlockWithFusionGate]:
             appended_layer = block(self.inplanes, planes, stride=stride, downsample=downsample, parallel=parallel, multiplication=True)
         else:
             appended_layer = block(self.inplanes, planes, stride=stride, downsample=downsample)
         layers.append(appended_layer)
         self.inplanes = planes * block.expansion
         for _ in range(1, blocks):
-            if block in [ParallelBinaryBasicBlock, BinaryBasicBlockWithSqueeze, BinaryBasicBlockWithFusionGate]:
+            if block in [ParallelBinaryBasicBlockNoSqueeze, ParallelBinaryBasicBlockWithSqueeze, ParallelBinaryBasicBlockWithFusionGate]:
                 layers.append(block(self.inplanes, planes, parallel=parallel, multiplication=True))
             else:
                 layers.append(block(self.inplanes, planes))
@@ -73,14 +76,14 @@ class ResNet(nn.Module):
         x = self.relu(x)
         #x = self.maxpool(x) # Pooling is skipped for CIFAR
 
-        if self.parallel != 1 and self.block != BinaryBasicBlockWithSqueeze:
+        if self.parallel != 1 and self.block != ParallelBinaryBasicBlockWithSqueeze:
             x = x.repeat(1, self.parallel, 1, 1)
         x = self.layer1(x)
         x = self.layer2(x)
         x = self.layer3(x)
         x = self.layer4(x)
 
-        if self.block in [ParallelBinaryBasicBlock, BinaryBasicBlockWithFusionGate]:
+        if self.block in [ParallelBinaryBasicBlockNoSqueeze, ParallelBinaryBasicBlockWithFusionGate]:
             x_shape = x.size()
             x_unsq = x.unsqueeze(1)
             x_resh = x_unsq.reshape(x_shape[0], self.parallel, x_shape[1] // self.parallel, x_shape[2], x_shape[3]) # is it OK?

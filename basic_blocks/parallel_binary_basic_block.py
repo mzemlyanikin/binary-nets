@@ -1,3 +1,4 @@
+import torch
 import torch.nn as nn
 
 from modules import binary_conv3x3
@@ -62,3 +63,17 @@ class ParallelBinaryBasicBlock(nn.Module):
         out = self.relu(out)
         return out
 
+class ParallelBinaryBasicBlockWithSqueeze(ParallelBinaryBasicBlock):
+    expansion = 1
+    # paper, page 5, fig. 2 (b) 
+
+    def __init__(self, inplanes, planes, stride=1, parallel=1, multiplication=False, downsample=None):
+        super(ParallelBinaryBasicBlockWithSqueeze, self).__init__(inplanes, planes, stride=stride, parallel=parallel, multiplication=multiplication, downsample=downsample, squeeze=True)
+
+
+class ParallelBinaryBasicBlockNoSqueeze(ParallelBinaryBasicBlock):
+    expansion = 1
+    # paper, page 5, fig. 2 (c) 
+
+    def __init__(self, inplanes, planes, stride=1, parallel=1, multiplication=False, downsample=None):
+        super(ParallelBinaryBasicBlockNoSqueeze, self).__init__(inplanes, planes, stride=stride, parallel=parallel, multiplication=multiplication, downsample=downsample, squeeze=False)
