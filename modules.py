@@ -1,17 +1,36 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.autograd import Function
 
-class Sign(nn.Module):
-    def forward(self, x):
-        return x.sign()
 
-    # STE
-    def backward(self, grad_output):
+class WeightBinarizer(Function):
+    @staticmethod
+    def forward(ctx, x):
+        # ctx is a context object that can be used to stash information
+        # for backward computation
+        return x.sign() * x.abs().mean()
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        # We return as many input gradients as there were arguments.
+        # Gradients of non-Tensor arguments to forward must be None.
         return grad_output
 
 
-def binarize(input):
+class ActivationBinarizer(Function):
+    @staticmethod
+    def forward(ctx, input):
+        ctx.input = input
+        return input.sign()
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        x = ctx.input.clamp(-1, 1)
+        return (2 - 2 * x * x.sign()) * grad_output
+
+
+def binarize(input): # Simplest possible binarization
     return input.sign()
 
 # Binary Conv2d is taken from:
@@ -28,14 +47,15 @@ class BinaryConv2d(nn.Conv2d):
         self.padding = padding
         self.dilation = dilation
         self.groups = groups
-        self.binarize = Sign()
+        self.binarize_act = ActivationBinarizer.apply
+        self.binarize_w = WeightBinarizer.apply
 
     def forward(self, input):
         if input.size(1) != 3:
-            input = self.binarize(input)
+            input = self.binarize_act(input)
         if not hasattr(self.weight, 'original'):
             self.weight.original = self.weight.data.clone()
-        self.weight.data = self.binarize(self.weight.original)
+        self.weight.data = self.binarize_w(self.weight.original)
         #self.weight.data = binarize(self.weight.data)
         out = F.conv2d(input, self.weight, None, self.stride,
                         self.padding, self.dilation, self.groups)
