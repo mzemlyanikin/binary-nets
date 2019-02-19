@@ -1,33 +1,8 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.autograd import Function
 
-
-class WeightBinarizer(Function):
-    @staticmethod
-    def forward(ctx, x):
-        # ctx is a context object that can be used to stash information
-        # for backward computation
-        return x.sign() * x.abs().mean()
-
-    @staticmethod
-    def backward(ctx, grad_output):
-        # We return as many input gradients as there were arguments.
-        # Gradients of non-Tensor arguments to forward must be None.
-        return grad_output
-
-
-class ActivationBinarizer(Function):
-    @staticmethod
-    def forward(ctx, input):
-        ctx.input = input
-        return input.sign()
-
-    @staticmethod
-    def backward(ctx, grad_output):
-        x = ctx.input.clamp(-1, 1)
-        return (2 - 2 * x * x.sign()) * grad_output
+from binarizers import WeightBinarizer, ActivationBinarizer, Ternarizer, Identity
 
 
 def binarize(input): # Simplest possible binarization
@@ -37,7 +12,7 @@ def binarize(input): # Simplest possible binarization
 # https://github.com/itayhubara/BinaryNet.pytorch/blob/master/models/binarized_modules.py
 class BinaryConv2d(nn.Conv2d):
     def __init__(self, in_channels, out_channels, kernel_size, stride=1,
-                 padding=0, dilation=1, groups=1, bias=True):
+                 padding=0, dilation=1, groups=1, bias=True, activation_binarizer=ActivationBinarizer(), weight_binarizer=WeightBinarizer()):
         super(BinaryConv2d, self).__init__(in_channels, out_channels, kernel_size, stride,
                  padding, dilation, groups, bias)
         self.in_channels = in_channels
@@ -47,8 +22,8 @@ class BinaryConv2d(nn.Conv2d):
         self.padding = padding
         self.dilation = dilation
         self.groups = groups
-        self.binarize_act = ActivationBinarizer.apply
-        self.binarize_w = WeightBinarizer.apply
+        self.binarize_act = activation_binarizer
+        self.binarize_w = weight_binarizer
 
     def forward(self, input):
         if input.size(1) != 3:
@@ -61,7 +36,7 @@ class BinaryConv2d(nn.Conv2d):
                         self.padding, self.dilation, self.groups)
 
         if self.bias is not None:
-            self.bias.org = self.bias.data.clone()
+            # self.bias.original = self.bias.data.clone() # do we need to save bias copy if it's not quantized?
             out += self.bias.view(1, -1, 1, 1).expand_as(out)
         return out
 
