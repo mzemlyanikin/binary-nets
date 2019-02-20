@@ -1,12 +1,11 @@
 import torch.nn as nn
-from basic_blocks import ParallelBinaryBasicBlockNoSqueeze, ParallelBinaryBasicBlockWithSqueeze, ParallelBinaryBasicBlockWithFusionGate
+from basic_blocks import BinaryBasicBlock, ParallelBinaryBasicBlockNoSqueeze, ParallelBinaryBasicBlockWithSqueeze, ParallelBinaryBasicBlockWithFusionGate
 
 from modules import conv1x1
 
 
 class ResNet(nn.Module):
-
-    def __init__(self, block, layers, parallel=1, num_classes=1000, zero_init_residual=False):
+    def __init__(self, block, layers, parallel=1, num_classes=1000, zero_init_residual=False, **kwargs):
         super(ResNet, self).__init__()
         self.block = block
         self.parallel = parallel
@@ -23,22 +22,22 @@ class ResNet(nn.Module):
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         self.fc = nn.Linear(512 * block.expansion, num_classes)
 
-       #  for m in self.modules():
-       #      if isinstance(m, nn.Conv2d):
-       #          nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
-       #      elif isinstance(m, nn.BatchNorm2d):
-       #          nn.init.constant_(m.weight, 1)
-       #          nn.init.constant_(m.bias, 0)
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+            elif isinstance(m, nn.BatchNorm2d):
+                nn.init.constant_(m.weight, 1)
+                nn.init.constant_(m.bias, 0)
 
-       #  # Zero-initialize the last BN in each residual branch,
-       #  # so that the residual branch starts with zeros, and each residual block behaves like an identity.
-       #  # This improves the model by 0.2~0.3% according to https://arxiv.org/abs/1706.02677
-       #  if zero_init_residual:
-       #      for m in self.modules():
-       #          if isinstance(m, BinaryBottleneck):
-       #              nn.init.constant_(m.bn3.weight, 0)
-       #          elif isinstance(m, BinaryBasicBlock):
-       #              nn.init.constant_(m.bn2.weight, 0)
+        # Zero-initialize the last BN in each residual branch,
+        # so that the residual branch starts with zeros, and each residual block behaves like an identity.
+        # This improves the model by 0.2~0.3% according to https://arxiv.org/abs/1706.02677
+        if zero_init_residual:
+            for m in self.modules():
+                if isinstance(m, BinaryBottleneck):
+                    nn.init.constant_(m.bn3.weight, 0)
+                elif isinstance(m, BinaryBasicBlock):
+                    nn.init.constant_(m.bn2.weight, 0)
 
     def _make_layer(self, block, planes, blocks, stride=1, parallel=1):
         downsample = None
@@ -74,9 +73,9 @@ class ResNet(nn.Module):
         x = self.conv1(x)
         x = self.bn1(x)
         x = self.relu(x)
-        #x = self.maxpool(x) # Pooling is skipped for CIFAR
+        x = self.maxpool(x) # Pooling is better be skipped for CIFAR
 
-        if self.parallel != 1 and self.block != ParallelBinaryBasicBlockWithSqueeze:
+        if self.parallel != 1 and self.block not in [ParallelBinaryBasicBlockWithSqueeze, BinaryBasicBlock]:
             x = x.repeat(1, self.parallel, 1, 1)
         x = self.layer1(x)
         x = self.layer2(x)
@@ -96,3 +95,46 @@ class ResNet(nn.Module):
 
         return x
 
+
+class ReIdResNet(ResNet):
+    def __init__(self, num_classes, loss, block, layers, parallel=1, zero_init_residual=False, **kwargs):
+        super(ReIdResNet, self).__init__(block, layers, parallel, num_classes, zero_init_residual)
+        self.loss = loss
+
+    def forward(self, x):
+        x = self.conv1(x)
+        x = self.bn1(x)
+        x = self.relu(x)
+        x = self.maxpool(x) # Pooling is better be skipped for CIFAR
+
+        if self.parallel != 1 and self.block not in [ParallelBinaryBasicBlockWithSqueeze, BinaryBasicBlock]:
+            x = x.repeat(1, self.parallel, 1, 1)
+        x = self.layer1(x)
+        x = self.layer2(x)
+        x = self.layer3(x)
+        x = self.layer4(x)
+
+        if self.block in [ParallelBinaryBasicBlockNoSqueeze, ParallelBinaryBasicBlockWithFusionGate]:
+            x_shape = x.size()
+            x_unsq = x.unsqueeze(1)
+            x_resh = x_unsq.reshape(x_shape[0], self.parallel, x_shape[1] // self.parallel, x_shape[2], x_shape[3]) # is it OK?
+            x_sum = x_resh.sum(dim=1)
+            x = x_sum.squeeze(1)
+
+        x = self.avgpool(x)
+        v = x.view(x.size(0), -1)
+
+        # if self.fc is not None: # There is no additional FC layer
+        #     v = self.fc(x)
+
+        if not self.training:
+            return v
+
+        y = self.fc(v)
+
+        if self.loss == {'xent'}:
+            return y
+        elif self.loss == {'xent', 'htri'}:
+            return y, v
+        else:
+            raise KeyError("Unsupported loss: {}".format(self.loss))

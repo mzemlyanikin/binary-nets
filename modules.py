@@ -3,7 +3,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 
 from binarizers import WeightBinarizer, ActivationBinarizer, Ternarizer, Identity
-
+from utils import _pair
 
 def binarize(input): # Simplest possible binarization
     return input.sign()
@@ -12,15 +12,16 @@ def binarize(input): # Simplest possible binarization
 # https://github.com/itayhubara/BinaryNet.pytorch/blob/master/models/binarized_modules.py
 class BinaryConv2d(nn.Conv2d):
     def __init__(self, in_channels, out_channels, kernel_size, stride=1,
-                 padding=0, dilation=1, groups=1, bias=True, activation_binarizer=ActivationBinarizer(), weight_binarizer=WeightBinarizer()):
+                 padding=0, dilation=1, groups=1, bias=True,
+                 activation_binarizer=ActivationBinarizer(), weight_binarizer=WeightBinarizer()):
         super(BinaryConv2d, self).__init__(in_channels, out_channels, kernel_size, stride,
                  padding, dilation, groups, bias)
         self.in_channels = in_channels
         self.out_channels = out_channels
-        self.kernel_size = kernel_size
-        self.stride = stride
-        self.padding = padding
-        self.dilation = dilation
+        self.kernel_size = _pair(kernel_size)
+        self.stride = _pair(stride)
+        self.padding = _pair(padding)
+        self.dilation = _pair(dilation)
         self.groups = groups
         self.binarize_act = activation_binarizer
         self.binarize_w = weight_binarizer
