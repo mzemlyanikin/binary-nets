@@ -19,7 +19,8 @@ That's why usual backward pass and weights update
 ```python
 optimizer.zero_grad()
 loss.backward()
-optimizer.step()```
+optimizer.step()
+```
 
 should be changed with:
 
@@ -32,4 +33,5 @@ for p in list(model.parameters()):
 optimizer.step()
 for p in list(model.parameters()):
     if hasattr(p, 'original'):
-        p.original.copy_(p.data.clamp_(-1, 1))```
+        p.original.copy_(p.data.clamp_(-1, 1))
+```
