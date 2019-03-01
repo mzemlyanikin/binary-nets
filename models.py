@@ -1,6 +1,6 @@
 from basic_blocks import BinaryBasicBlock, ParallelBinaryBasicBlockWithSqueeze, ParallelBinaryBasicBlockNoSqueeze, ParallelBinaryBasicBlockWithFusionGate
 from resnet import ResNet, ReIdResNet
-from load_weights import load_weights
+from utils import load_weights
 
 model_urls = {
     'resnet18': 'https://download.pytorch.org/models/resnet18-5c106cde.pth',
