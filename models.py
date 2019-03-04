@@ -8,6 +8,7 @@ model_urls = {
     'resnet50': 'https://download.pytorch.org/models/resnet50-19c8e357.pth',
     'resnet101': 'https://download.pytorch.org/models/resnet101-5d3b4d8f.pth',
     'resnet152': 'https://download.pytorch.org/models/resnet152-b121ed2d.pth',
+    'resnet18-duke': 'https://github.com/wonnado/binary-nets/blob/master/pretrained_models/resnet18_duke-0a916429.pth.tar?raw=true'
 }
 
 
@@ -64,5 +65,15 @@ def reid_parallel_resnet18_with_fusion_gate(loss, num_classes, pretrained='image
     model = ReIdResNet(loss=loss, num_classes=num_classes, block=ParallelBinaryBasicBlockWithFusionGate, layers=[2, 2, 2, 2], **kwargs)
     if pretrained == 'imagenet':
         load_weights(model, model_urls['resnet18'], partial=True)
+    elif pretrained == 'duke':
+        load_weights(model, model_urls['resnet18-duke'], partial=True)
     return model
 
+
+def reid_parallel_resnet18_with_fusion_gate_fc(loss, num_classes, pretrained='imagenet', **kwargs): # paper, page 6, fig. 3
+    model = ReIdResNet(loss=loss, num_classes=num_classes, block=ParallelBinaryBasicBlockWithFusionGate, layers=[2, 2, 2, 2], fc_dims=[512], **kwargs)
+    if pretrained == 'imagenet':
+        load_weights(model, model_urls['resnet18'], partial=True)
+    elif pretrained == 'duke':
+        load_weights(model, model_urls['resnet18-duke'], partial=True)
+    return model

@@ -5,7 +5,7 @@ from modules import conv1x1
 
 
 class ResNet(nn.Module):
-    def __init__(self, block, layers, parallel=1, num_classes=1000, zero_init_residual=False, **kwargs):
+    def __init__(self, block, layers, parallel=1, num_classes=1000, zero_init_residual=False, fc_dims=None, dropout_p=None, **kwargs):
         super(ResNet, self).__init__()
         self.block = block
         self.parallel = parallel
@@ -20,7 +20,8 @@ class ResNet(nn.Module):
         self.layer3 = self._make_layer(block, 256, layers[2], stride=2, parallel=parallel)
         self.layer4 = self._make_layer(block, 512, layers[3], stride=2, parallel=parallel)
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
-        self.fc = nn.Linear(512 * block.expansion, num_classes)
+        self.fc = self._construct_fc_layer(fc_dims, 512 * block.expansion, dropout_p)
+        self.classifier = nn.Linear(512 * block.expansion, num_classes)
 
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
@@ -69,6 +70,35 @@ class ResNet(nn.Module):
 
         return nn.Sequential(*layers)
 
+    def _construct_fc_layer(self, fc_dims, input_dim, dropout_p=None):
+        """
+        Construct fully connected layer
+
+        - fc_dims (list or tuple): dimensions of fc layers, if None,
+                                   no fc layers are constructed
+        - input_dim (int): input dimension
+        - dropout_p (float): dropout probability, if None, dropout is unused
+        """
+        if fc_dims is None:
+            self.feature_dim = input_dim
+            return None
+
+        assert isinstance(fc_dims, (list, tuple)), "fc_dims must be either list or tuple, but got {}".format(
+            type(fc_dims))
+
+        layers = []
+        for dim in fc_dims:
+            layers.append(nn.Linear(input_dim, dim))
+            layers.append(nn.BatchNorm1d(dim))
+            layers.append(nn.ReLU(inplace=True))
+            if dropout_p is not None:
+                layers.append(nn.Dropout(p=dropout_p))
+            input_dim = dim
+
+        self.feature_dim = fc_dims[-1]
+
+        return nn.Sequential(*layers)
+
     def forward(self, x):
         x = self.conv1(x)
         x = self.bn1(x)
@@ -91,14 +121,18 @@ class ResNet(nn.Module):
 
         x = self.avgpool(x)
         x = x.view(x.size(0), -1)
-        x = self.fc(x)
+
+        if self.fc is not None:
+            x = self.fc(x)
+
+        x = self.classifier(x)
 
         return x
 
 
 class ReIdResNet(ResNet):
     def __init__(self, num_classes, loss, block, layers, parallel=1, zero_init_residual=False, **kwargs):
-        super(ReIdResNet, self).__init__(block, layers, parallel, num_classes, zero_init_residual)
+        super(ReIdResNet, self).__init__(block, layers, parallel, num_classes, zero_init_residual, **kwargs)
         self.loss = loss
 
     def forward(self, x):
@@ -124,13 +158,13 @@ class ReIdResNet(ResNet):
         x = self.avgpool(x)
         v = x.view(x.size(0), -1)
 
-        # if self.fc is not None: # There is no additional FC layer
-        #     v = self.fc(x)
+        if self.fc is not None:
+            v = self.fc(v)
 
         if not self.training:
             return v
 
-        y = self.fc(v)
+        y = self.classifier(v)
 
         if self.loss == {'xent'}:
             return y
