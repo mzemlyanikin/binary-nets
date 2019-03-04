@@ -5,20 +5,22 @@ from modules import conv1x1
 
 
 class ResNet(nn.Module):
-    def __init__(self, block, layers, parallel=1, num_classes=1000, zero_init_residual=False, fc_dims=None, dropout_p=None, **kwargs):
+    def __init__(self, block, layers, parallel=1, num_classes=1000, zero_init_residual=False, fc_dims=None,
+                 dropout_p=None, multiplication=True, **kwargs):
         super(ResNet, self).__init__()
         self.block = block
         self.parallel = parallel
+        self.multiplication = multiplication
         self.inplanes = 64
         self.conv1 = nn.Conv2d(3, 64, kernel_size=7, stride=2, padding=3,
                                bias=False)
         self.bn1 = nn.BatchNorm2d(64)
         self.relu = nn.ReLU(inplace=True) #nn.Hardtanh(inplace=True)#
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
-        self.layer1 = self._make_layer(block, 64, layers[0], parallel=parallel)
-        self.layer2 = self._make_layer(block, 128, layers[1], stride=2, parallel=parallel)
-        self.layer3 = self._make_layer(block, 256, layers[2], stride=2, parallel=parallel)
-        self.layer4 = self._make_layer(block, 512, layers[3], stride=2, parallel=parallel)
+        self.layer1 = self._make_layer(block, 64, layers[0])
+        self.layer2 = self._make_layer(block, 128, layers[1], stride=2)
+        self.layer3 = self._make_layer(block, 256, layers[2], stride=2)
+        self.layer4 = self._make_layer(block, 512, layers[3], stride=2)
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         self.fc = self._construct_fc_layer(fc_dims, 512 * block.expansion, dropout_p)
         self.classifier = nn.Linear(512 * block.expansion, num_classes)
@@ -40,13 +42,13 @@ class ResNet(nn.Module):
                 elif isinstance(m, BinaryBasicBlock):
                     nn.init.constant_(m.bn2.weight, 0)
 
-    def _make_layer(self, block, planes, blocks, stride=1, parallel=1):
+    def _make_layer(self, block, planes, blocks, stride=1):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
             if block in [ParallelBinaryBasicBlockNoSqueeze, ParallelBinaryBasicBlockWithFusionGate]:
                 downsample = nn.Sequential(
-                    conv1x1(self.inplanes * parallel, planes * block.expansion * parallel, stride, parallel), # is it OK?
-                    nn.BatchNorm2d(planes * block.expansion * parallel),
+                    conv1x1(self.inplanes * self.parallel, planes * block.expansion * self.parallel, stride, self.parallel), # is it OK?
+                    nn.BatchNorm2d(planes * block.expansion * self.parallel),
                 )
             else:
                 downsample = nn.Sequential(
@@ -57,14 +59,15 @@ class ResNet(nn.Module):
 
         layers = []
         if block in [ParallelBinaryBasicBlockNoSqueeze, ParallelBinaryBasicBlockWithSqueeze, ParallelBinaryBasicBlockWithFusionGate]:
-            appended_layer = block(self.inplanes, planes, stride=stride, downsample=downsample, parallel=parallel, multiplication=True)
+            appended_layer = block(self.inplanes, planes, stride=stride, downsample=downsample, parallel=self.parallel,
+                                   multiplication=self.multiplication)
         else:
             appended_layer = block(self.inplanes, planes, stride=stride, downsample=downsample)
         layers.append(appended_layer)
         self.inplanes = planes * block.expansion
         for _ in range(1, blocks):
             if block in [ParallelBinaryBasicBlockNoSqueeze, ParallelBinaryBasicBlockWithSqueeze, ParallelBinaryBasicBlockWithFusionGate]:
-                layers.append(block(self.inplanes, planes, parallel=parallel, multiplication=True))
+                layers.append(block(self.inplanes, planes, parallel=self.parallel, multiplication=self.multiplication))
             else:
                 layers.append(block(self.inplanes, planes))
 
