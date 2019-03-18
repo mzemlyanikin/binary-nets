@@ -1,4 +1,6 @@
+import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from basic_blocks import BinaryBasicBlock, ParallelBinaryBasicBlockNoSqueeze, ParallelBinaryBasicBlockWithSqueeze, ParallelBinaryBasicBlockWithFusionGate
 
 from modules import conv1x1
@@ -17,11 +19,10 @@ class ResNet(nn.Module):
         self.bn1 = nn.BatchNorm2d(64)
         self.relu = nn.ReLU(inplace=True) #nn.Hardtanh(inplace=True)#
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
-        self.layer1 = self._make_layer(block, 64, layers[0])
-        self.layer2 = self._make_layer(block, 128, layers[1], stride=2)
-        self.layer3 = self._make_layer(block, 256, layers[2], stride=2)
-        self.layer4 = self._make_layer(block, 512, layers[3], stride=2)
-        self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
+        self.layer1 = self._make_layer(block, 64, layers[0], **kwargs)
+        self.layer2 = self._make_layer(block, 128, layers[1], stride=2, **kwargs)
+        self.layer3 = self._make_layer(block, 256, layers[2], stride=2, **kwargs)
+        self.layer4 = self._make_layer(block, 512, layers[3], stride=2, **kwargs)
         self.fc = self._construct_fc_layer(fc_dims, 512 * block.expansion, dropout_p)
         self.classifier = nn.Linear(512 * block.expansion, num_classes)
 
@@ -42,7 +43,7 @@ class ResNet(nn.Module):
                 elif isinstance(m, BinaryBasicBlock):
                     nn.init.constant_(m.bn2.weight, 0)
 
-    def _make_layer(self, block, planes, blocks, stride=1):
+    def _make_layer(self, block, planes, blocks, stride=1, **kwargs):
         downsample = None
         if stride != 1 or self.inplanes != planes * block.expansion:
             if block in [ParallelBinaryBasicBlockNoSqueeze, ParallelBinaryBasicBlockWithFusionGate]:
@@ -60,14 +61,14 @@ class ResNet(nn.Module):
         layers = []
         if block in [ParallelBinaryBasicBlockNoSqueeze, ParallelBinaryBasicBlockWithSqueeze, ParallelBinaryBasicBlockWithFusionGate]:
             appended_layer = block(self.inplanes, planes, stride=stride, downsample=downsample, parallel=self.parallel,
-                                   multiplication=self.multiplication)
+                                   multiplication=self.multiplication, **kwargs)
         else:
             appended_layer = block(self.inplanes, planes, stride=stride, downsample=downsample)
         layers.append(appended_layer)
         self.inplanes = planes * block.expansion
         for _ in range(1, blocks):
             if block in [ParallelBinaryBasicBlockNoSqueeze, ParallelBinaryBasicBlockWithSqueeze, ParallelBinaryBasicBlockWithFusionGate]:
-                layers.append(block(self.inplanes, planes, parallel=self.parallel, multiplication=self.multiplication))
+                layers.append(block(self.inplanes, planes, parallel=self.parallel, multiplication=self.multiplication, **kwargs))
             else:
                 layers.append(block(self.inplanes, planes))
 
@@ -109,7 +110,7 @@ class ResNet(nn.Module):
         x = self.maxpool(x) # Pooling is better be skipped for CIFAR
 
         if self.parallel != 1 and self.block not in [ParallelBinaryBasicBlockWithSqueeze, BinaryBasicBlock]:
-            x = x.repeat(1, self.parallel, 1, 1)
+            x = torch.cat([x for _ in range(self.parallel)], 1)
         x = self.layer1(x)
         x = self.layer2(x)
         x = self.layer3(x)
@@ -117,12 +118,11 @@ class ResNet(nn.Module):
 
         if self.block in [ParallelBinaryBasicBlockNoSqueeze, ParallelBinaryBasicBlockWithFusionGate]:
             x_shape = x.size()
-            x_unsq = x.unsqueeze(1)
-            x_resh = x_unsq.reshape(x_shape[0], self.parallel, x_shape[1] // self.parallel, x_shape[2], x_shape[3]) # is it OK?
+            x_resh = x.view(x_shape[0], self.parallel, x_shape[1] // self.parallel, x_shape[2], x_shape[3]) # is it OK?
             x_sum = x_resh.sum(dim=1)
             x = x_sum.squeeze(1)
 
-        x = self.avgpool(x)
+        x = F.avg_pool2d(x, x.size()[2:])
         x = x.view(x.size(0), -1)
 
         if self.fc is not None:
@@ -145,7 +145,7 @@ class ReIdResNet(ResNet):
         x = self.maxpool(x) # Pooling is better be skipped for CIFAR
 
         if self.parallel != 1 and self.block not in [ParallelBinaryBasicBlockWithSqueeze, BinaryBasicBlock]:
-            x = x.repeat(1, self.parallel, 1, 1)
+            x = torch.cat([x.clone() for _ in range(self.parallel)], 1)
         x = self.layer1(x)
         x = self.layer2(x)
         x = self.layer3(x)
@@ -153,12 +153,11 @@ class ReIdResNet(ResNet):
 
         if self.block in [ParallelBinaryBasicBlockNoSqueeze, ParallelBinaryBasicBlockWithFusionGate]:
             x_shape = x.size()
-            x_unsq = x.unsqueeze(1)
-            x_resh = x_unsq.reshape(x_shape[0], self.parallel, x_shape[1] // self.parallel, x_shape[2], x_shape[3]) # is it OK?
+            x_resh = x.view(x_shape[0], self.parallel, x_shape[1] // self.parallel, x_shape[2], x_shape[3]) # is it OK?
             x_sum = x_resh.sum(dim=1)
             x = x_sum.squeeze(1)
 
-        x = self.avgpool(x)
+        x = F.avg_pool2d(x, (8, 4))  # kernel size should be constant to convert to ONNX
         v = x.view(x.size(0), -1)
 
         if self.fc is not None:
