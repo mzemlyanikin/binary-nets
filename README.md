@@ -35,3 +35,16 @@ for p in list(model.parameters()):
     if hasattr(p, 'original'):
         p.original.copy_(p.data.clamp_(-1, 1))
 ```
+
+
+## ONNX compatibility:
+
+Some changes were made into models with fusion gate to make them ONNX-compatible.
+Models for training use modules with custom backward function, that can't be converted with ONNX, that's why they are changed with simple sign function for inference.
+To create inference model you should pass `freeze=True` flag.
+
+## TODO:
+
+Proper initialization for inference models:
+- Mean of weights should be merged into batchnorms
+- Weights binarization should be done
